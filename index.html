@@ -102,52 +102,64 @@ footer{text-align:center;color:#b18496;font-size:.8rem;padding:24px}
 </main>
 
 <div id="hearts" aria-hidden="true"></div>
-
 <script>
 const $ = id => document.getElementById(id);
 
 const SUPABASE_URL = "https://gxeesttyijszbswkixtn.supabase.co";
-const SUPABASE_KEY = "sb_publishable_RbwBSZbbz3vG5IkSjKErfg_5RQ9-zrY";
+const SUPABASE_KEY = "sb_publishable_RbwBSZbbz3vG5IkSJKErfg_5RQ9-zrY";
 
 let timer = null;
 let startTime = null;
 let busy = false;
 
-async function getSharedStart() {
+async function supabaseRPC(functionName) {
   const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/contador_belen?select=inicio&id=eq.1`,
+    `${SUPABASE_URL}/rest/v1/rpc/${functionName}`,
     {
+      method: "POST",
       headers: {
         apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`
-      }
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: "{}"
     }
   );
 
   if (!response.ok) {
-    throw new Error("No se pudo consultar el contador.");
+    throw new Error(await response.text());
   }
 
-  const rows = await response.json();
-  return rows.length && rows[0].inicio ? rows[0].inicio : null;
+  return await response.json();
 }
 
 function updateCounter(start) {
   const elapsed = Math.max(0, Date.now() - start);
+
   $("days").textContent = Math.floor(elapsed / 86400000);
-  $("hours").textContent = String(Math.floor(elapsed / 3600000) % 24).padStart(2, "0");
-  $("minutes").textContent = String(Math.floor(elapsed / 60000) % 60).padStart(2, "0");
-  $("seconds").textContent = String(Math.floor(elapsed / 1000) % 60).padStart(2, "0");
+
+  $("hours").textContent = String(
+    Math.floor(elapsed / 3600000) % 24
+  ).padStart(2, "0");
+
+  $("minutes").textContent = String(
+    Math.floor(elapsed / 60000) % 60
+  ).padStart(2, "0");
+
+  $("seconds").textContent = String(
+    Math.floor(elapsed / 1000) % 60
+  ).padStart(2, "0");
 }
 
 function showYes(start) {
   const timestamp = new Date(start).getTime();
 
   if (!Number.isFinite(timestamp)) {
-    throw new Error("La fecha recibida no es válida.");
+    throw new Error("Fecha no válida");
   }
 
   startTime = timestamp;
+
   $("buttons").classList.add("hidden");
   $("thinkMessage").classList.add("hidden");
   $("success").classList.remove("hidden");
@@ -155,66 +167,76 @@ function showYes(start) {
   updateCounter(startTime);
 
   if (timer) clearInterval(timer);
-  timer = setInterval(() => updateCounter(startTime), 1000);
-}
 
-function burst() {
-  for (let i = 0; i < 22; i++) setTimeout(makeHeart, i * 70);
+  timer = setInterval(() => {
+    updateCounter(startTime);
+  }, 1000);
 }
 
 function makeHeart() {
   const h = document.createElement("span");
+
   h.className = "heart";
-  h.textContent = ["❤️", "💕", "♡", "💗"][Math.floor(Math.random() * 4)];
+  h.textContent = ["❤️", "💕", "♡", "💗"][
+    Math.floor(Math.random() * 4)
+  ];
+
   h.style.left = Math.random() * 100 + "vw";
   h.style.fontSize = (12 + Math.random() * 20) + "px";
   h.style.animationDuration = (6 + Math.random() * 5) + "s";
+
   $("hearts").appendChild(h);
+
   setTimeout(() => h.remove(), 12000);
+}
+
+function burst() {
+  for (let i = 0; i < 22; i++) {
+    setTimeout(makeHeart, i * 70);
+  }
 }
 
 setInterval(() => {
   if (Math.random() > 0.3) makeHeart();
 }, 1200);
 
+async function initializePage() {
+  try {
+    const start = await supabaseRPC("obtener_contador_belen");
+
+    if (start) {
+      showYes(start);
+    }
+  } catch (error) {
+    console.error("Error al consultar Supabase:", error);
+  }
+}
+
 async function startSharedCounter() {
-  if (busy) return;
+  if (busy || startTime !== null) return;
 
   busy = true;
   $("btnYes").disabled = true;
   $("btnYes").textContent = "Un momento... ❤️";
 
   try {
-    const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/rpc/iniciar_contador_belen`,
-      {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: "{}"
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error("No se pudo iniciar el contador compartido.");
-    }
-
-    // Consultamos la fecha guardada para asegurarnos de usar
-    // la misma fecha en todos los dispositivos.
-    const start = await getSharedStart();
+    const start = await supabaseRPC("iniciar_contador_belen");
 
     if (!start) {
-      throw new Error("No se encontró la fecha del contador.");
+      throw new Error("No se recibió la fecha de inicio");
     }
 
     showYes(start);
     burst();
+
   } catch (error) {
     console.error(error);
-    alert("No se pudo conectar con el contador. Comprueba la conexión y que hayas ejecutado el SQL de Supabase.");
+
+    alert(
+      "No se pudo conectar con el contador. " +
+      "Comprueba tu conexión y la configuración de Supabase."
+    );
+
   } finally {
     busy = false;
     $("btnYes").disabled = false;
@@ -229,32 +251,22 @@ $("btnThink").addEventListener("click", () => {
     "No importa cuánto tardes, solo quería que supieras lo importante que eres para mí. ❤️";
 });
 
-async function initializePage() {
+async function synchronizeCounter() {
+  if (startTime !== null) return;
+
   try {
-    const start = await getSharedStart();
+    const start = await supabaseRPC("obtener_contador_belen");
 
     if (start) {
       showYes(start);
     }
   } catch (error) {
-    console.error("No se pudo comprobar el contador compartido:", error);
+    console.error("Error de sincronización:", error);
   }
 }
 
-// Si el contador se inicia en otro celular mientras esta página
-// sigue abierta, esta página también lo detectará.
 initializePage();
-
-setInterval(async () => {
-  if (startTime !== null) return;
-
-  try {
-    const start = await getSharedStart();
-    if (start) showYes(start);
-  } catch (error) {
-    console.error("No se pudo sincronizar el contador:", error);
-  }
-}, 5000);
+setInterval(synchronizeCounter, 5000);
 </script>
 </body>
 </html>
